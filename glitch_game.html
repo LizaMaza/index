@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERROR_GAME.exe</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0a0a0f;
+  color: #e0e0e0;
+  font-family: 'Courier New', monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  padding: 20px;
+  overflow-x: hidden;
+}
+
+#title {
+  font-size: 22px;
+  color: #ff3333;
+  letter-spacing: 0.15em;
+  margin-bottom: 2px;
+  text-shadow: 2px 0 #ff3333, -2px 0 #00ffff;
+}
+
+#subtitle {
+  font-size: 11px;
+  color: #555;
+  margin-bottom: 14px;
+  letter-spacing: 0.08em;
+}
+
+#hud {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+#score-wrap { color: #aaa; }
+#score { color: #fff; font-size: 18px; display: inline-block; }
+#lives-wrap { color: #aaa; }
+#lives { color: #ff4444; font-size: 18px; }
+#level-wrap { color: #aaa; }
+#level-val { color: #7aefb0; font-size: 16px; }
+
+#game-container {
+  position: relative;
+  width: 480px;
+  height: 400px;
+  border: 1px solid #222;
+  background: #07070d;
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+canvas {
+  display: block;
+  width: 480px;
+  height: 400px;
+}
+
+#overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.85);
+  z-index: 10;
+}
+
+#overlay h2 { font-size: 20px; color: #ff3333; margin-bottom: 8px; letter-spacing: 0.1em; }
+#overlay p  { font-size: 13px; color: #888; margin-bottom: 18px; text-align: center; max-width: 300px; line-height: 1.6; }
+#overlay button {
+  background: transparent;
+  border: 1px solid #ff3333;
+  color: #ff3333;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  padding: 8px 24px;
+  cursor: pointer;
+  letter-spacing: 0.1em;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+#overlay button:hover { background: #ff333322; }
+
+#glitch-msg {
+  position: absolute;
+  top: 8px; left: 0; right: 0;
+  text-align: center;
+  font-size: 12px;
+  color: #ff3333;
+  letter-spacing: 0.06em;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+#secret-msg {
+  position: absolute;
+  bottom: 8px; left: 0; right: 0;
+  text-align: center;
+  font-size: 11px;
+  color: #00ff88;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0;
+}
+
+#controls-hint {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #333;
+  letter-spacing: 0.05em;
+  text-align: center;
+}
+
+#log {
+  margin-top: 10px;
+  width: 480px;
+  max-height: 60px;
+  overflow: hidden;
+  font-size: 10px;
+  color: #2a2a2a;
+  line-height: 1.4;
+}
+
+.log-line { color: #2a7a4a; }
+.log-line.err { color: #7a2a2a; }
+</style>
+</head>
+<body>
+
+<div id="title">ERROR_GAME.exe</div>
+<p id="subtitle">something went wrong... or not?</p>
+
+<div id="hud">
+  <span id="score-wrap">SCORE: <span id="score">0</span></span>
+  <span id="lives-wrap">LIVES: <span id="lives">♥♥♥</span></span>
+  <span id="level-wrap">LEVEL: <span id="level-val">1</span></span>
+</div>
+
+<div id="game-container">
+  <canvas id="canvas" width="480" height="400"></canvas>
+  <div id="glitch-msg">!!! MEMORY ERROR !!!</div>
+  <div id="secret-msg">[ SECRET EXIT DETECTED ]</div>
+  <div id="overlay">
+    <h2>ERROR_GAME.exe</h2>
+    <p>Collect pixels. Avoid red blocks.<br>The game will "break" — this is part of the mechanics.<br>Find bugs — some of them are secret!</p>
+    <button onclick="startGame()">► START</button>
+  </div>
+</div>
+
+<p id="controls-hint">← → movement &nbsp;|&nbsp; SPACE — jump</p>
+
+<div id="log"></div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const W = 480, H = 400;
+const overlay = document.getElementById('overlay');
+const glitchMsg = document.getElementById('glitch-msg');
+const secretMsg = document.getElementById('secret-msg');
+const scoreEl = document.getElementById('score');
+const livesEl = document.getElementById('lives');
+const levelEl = document.getElementById('level-val');
+const logEl = document.getElementById('log');
+
+let game = null;
+
+function addLog(text, isErr) {
+  const d = document.createElement('div');
+  d.className = 'log-line' + (isErr ? ' err' : '');
+  d.textContent = '> ' + text;
+  logEl.prepend(d);
+  while (logEl.children.length > 5) logEl.removeChild(logEl.lastChild);
+}
+
+function startGame() {
+  overlay.style.display = 'none';
+  game = new Game();
+  requestAnimationFrame(loop);
+}
+
+function showOverlay(title, msg, btnText, cb) {
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `<h2>${title}</h2><p>${msg}</p><button id="obtn">${btnText}</button>`;
+  document.getElementById('obtn').onclick = () => { overlay.style.display='none'; cb(); };
+}
+
+let lastTime = 0;
+function loop(ts) {
+  const dt = Math.min((ts - lastTime) / 1000, 0.05);
+  lastTime = ts;
+  if (game && !game.paused) {
+    game.update(dt);
+    game.draw();
+  }
+  requestAnimationFrame(loop);
+}
+
+class Game {
+  constructor() {
+    this.level = 1;
+    this.score = 0;
+    this.lives = 3;
+    this.paused = false;
+
+    this.glitchTimer = 0;
+    this.nextGlitch = 4 + Math.random() * 4;
+    this.glitchType = null;
+    this.glitchDuration = 0;
+    this.gravityFlipped = false;
+    this.speedMult = 1;
+    this.invertControls = false;
+    this.shakeX = 0;
+    this.shakeY = 0;
+    this.colorGlitch = false;
+    this.secretFound = false;
+    this.secretTimer = 0;
+
+    this.keys = {};
+    this.keyHandler = e => {
+      this.keys[e.code] = e.type === 'keydown';
+      if (['Space','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)) e.preventDefault();
+    };
+    document.addEventListener('keydown', this.keyHandler);
+    document.addEventListener('keyup', this.keyHandler);
+
+    this.initLevel();
+  }
+
+  initLevel() {
+    const g = 800;
+    this.player = {
+      x: 60, y: 300, w: 22, h: 22,
+      vx: 0, vy: 0,
+      onGround: false,
+      color: '#7F77DD',
+    };
+    this.platforms = this.buildPlatforms();
+    this.pixels = this.spawnPixels();
+    this.enemies = this.spawnEnemies();
+    this.particles = [];
+    this.secretDoor = null;
+    if (this.level >= 2) this.secretDoor = { x: 440, y: 120, w: 18, h: 32, visible: false, visTimer: 0 };
+    levelEl.textContent = this.level;
+  }
+
+  buildPlatforms() {
+    const base = [
+      { x:0,   y:375, w:480, h:25 },
+      { x:60,  y:300, w:100, h:12 },
+      { x:220, y:260, w:90,  h:12 },
+      { x:350, y:220, w:100, h:12 },
+      { x:100, y:180, w:80,  h:12 },
+      { x:260, y:140, w:100, h:12 },
+      { x:30,  y:120, w:70,  h:12 },
+      { x:380, y:100, w:80,  h:12 },
+    ];
+    return base.map(p => ({ ...p, color: '#1a1a2e' }));
+  }
+
+  spawnPixels() {
+    const spots = [
+      {x:100,y:285},{x:160,y:285},{x:250,y:245},{x:290,y:245},
+      {x:370,y:205},{x:410,y:205},{x:120,y:165},{x:160,y:165},
+      {x:280,y:125},{x:310,y:125},{x:50,y:105},{x:80,y:105},
+      {x:400,y:85},{x:430,y:85},
+    ];
+    return spots.map(s => ({ x:s.x, y:s.y, w:10, h:10, collected:false,
+      color: ['#00ffcc','#ffcc00','#ff88ff','#88ccff'][Math.floor(Math.random()*4)] }));
+  }
+
+  spawnEnemies() {
+    return [
+      { x:230, y:248, w:18, h:18, vx:40, plat:2 },
+      { x:355, y:208, w:18, h:18, vx:-40, plat:3 },
+      { x:105, y:168, w:18, h:18, vx:35, plat:4 },
+      { x:265, y:128, w:18, h:18, vx:-35, plat:5 },
+    ];
+  }
+
+  update(dt) {
+    this.glitchTimer += dt;
+    if (this.glitchDuration > 0) {
+      this.glitchDuration -= dt;
+      if (this.glitchDuration <= 0) this.endGlitch();
+    }
+    if (this.glitchTimer >= this.nextGlitch && this.glitchDuration <= 0) {
+      this.triggerGlitch();
+    }
+
+    if (this.secretTimer > 0) {
+      this.secretTimer -= dt;
+      secretMsg.style.opacity = this.secretTimer > 0 ? '1' : '0';
+    }
+
+    this.shakeX *= 0.85;
+    this.shakeY *= 0.85;
+    if (Math.abs(this.shakeX) < 0.5) this.shakeX = 0;
+
+    const grav = this.gravityFlipped ? -800 : 800;
+    const floorY = this.gravityFlipped ? -5 : 375;
+
+    let dx = 0;
+    const left  = this.invertControls ? this.keys['ArrowRight'] || this.keys['KeyD'] : this.keys['ArrowLeft'] || this.keys['KeyA'];
+    const right = this.invertControls ? this.keys['ArrowLeft']  || this.keys['KeyA'] : this.keys['ArrowRight'] || this.keys['KeyD'];
+    const jump  = this.keys['Space'] || this.keys['ArrowUp'] || this.keys['KeyW'];
+
+    if (left)  dx = -180 * this.speedMult;
+    if (right) dx =  180 * this.speedMult;
+
+    this.player.vx = dx;
+    this.player.vy += grav * dt;
+    if (jump && this.player.onGround) {
+      this.player.vy = this.gravityFlipped ? 500 : -500;
+      this.player.onGround = false;
+    }
+
+    this.player.x += this.player.vx * dt;
+    this.player.y += this.player.vy * dt;
+
+    this.player.x = Math.max(0, Math.min(W - this.player.w, this.player.x));
+
+    this.player.onGround = false;
+    for (const p of this.platforms) {
+      if (this.rectsOverlap(this.player, p)) {
+        if (!this.gravityFlipped && this.player.vy >= 0 && this.player.y + this.player.h - this.player.vy*dt <= p.y + 2) {
+          this.player.y = p.y - this.player.h;
+          this.player.vy = 0;
+          this.player.onGround = true;
+        } else if (this.gravityFlipped && this.player.vy <= 0 && this.player.y - this.player.vy*dt >= p.y + p.h - 2) {
+          this.player.y = p.y + p.h;
+          this.player.vy = 0;
+          this.player.onGround = true;
+        }
+      }
+    }
+
+    if (!this.gravityFlipped && this.player.y > H) this.die();
+    if (this.gravityFlipped && this.player.y < -50) this.die();
+
+    for (const e of this.enemies) {
+      const plat = this.platforms[e.plat];
+      e.x += e.vx * dt;
+      if (e.x < plat.x) { e.x = plat.x; e.vx *= -1; }
+      if (e.x + e.w > plat.x + plat.w) { e.x = plat.x + plat.w - e.w; e.vx *= -1; }
+      if (this.rectsOverlap(this.player, e)) this.die();
+    }
+
+    for (const px of this.pixels) {
+      if (!px.collected && this.rectsOverlap(this.player, px)) {
+        px.collected = true;
+        this.score += this.glitchType === 'negScore' ? -5 : 10;
+        if (this.score < -999) this.score = -999;
+        scoreEl.textContent = this.score;
+        this.spawnParticles(px.x, px.y, px.color);
+        addLog(`pixel_collect(${px.x},${px.y}) +10pts`);
+      }
+    }
+
+    if (this.secretDoor) {
+      this.secretDoor.visTimer += dt;
+      this.secretDoor.visible = (Math.sin(this.secretDoor.visTimer * 3) > 0.3);
+      if (this.rectsOverlap(this.player, this.secretDoor) && this.secretDoor.visible) {
+        this.foundSecret();
+      }
+    }
+
+    if (this.pixels.every(p => p.collected)) this.nextLevel();
+
+    for (const p of this.particles) {
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.life -= dt; p.vy += 200 * dt;
+    }
+    this.particles = this.particles.filter(p => p.life > 0);
+  }
+
+  die() {
+    this.lives--;
+    updateLivesUI(this.lives);
+    this.spawnParticles(this.player.x, this.player.y, '#ff4444');
+    addLog('SEGFAULT: player.y overflow', true);
+    if (this.lives <= 0) {
+      this.paused = true;
+      showOverlay('GAME OVER', 'Process terminated with code 1.<br>Try again?', '► RESTART', () => {
+        this.lives = 3; this.score = 0; this.level = 1;
+        scoreEl.textContent = 0;
+        updateLivesUI(3);
+        this.endGlitch();
+        this.initLevel();
+        this.paused = false;
+      });
+    } else {
+      this.player.x = 60; this.player.y = 300; this.player.vx = 0; this.player.vy = 0;
+    }
+  }
+
+  nextLevel() {
+    this.level++;
+    this.score += 50;
+    scoreEl.textContent = this.score;
+    addLog(`level_load(${this.level}) — OK`);
+    this.paused = true;
+    const msgs = [
+      'level complete!',
+      'WARNING: anomalies detected in memory',
+      'CRITICAL ERROR: reality is unstable',
+    ];
+    const m = msgs[Math.min(this.level-2, msgs.length-1)] || msgs[msgs.length-1];
+    showOverlay('LEVEL ' + (this.level-1) + ' COMPLETE', m + '<br><br>The next level will be... more interesting.', '► CONTINUE', () => {
+      this.endGlitch();
+      this.glitchTimer = 0;
+      this.nextGlitch = 3 - Math.min(this.level * 0.3, 2);
+      this.initLevel();
+      this.paused = false;
+    });
+  }
+
+  triggerGlitch() {
+    const types = ['flip', 'shake', 'speed', 'invert', 'color', 'negScore'];
+    const type = types[Math.floor(Math.random() * types.length)];
+    this.glitchType = type;
+    this.glitchTimer = 0;
+    this.nextGlitch = 5 + Math.random() * 5 - this.level * 0.3;
+    this.glitchDuration = 2 + Math.random() * 2;
+
+    const msgs = {
+      flip:     '!!! GRAVITY.EXE CRASHED !!!',
+      shake:    '!!! HEAP CORRUPTION DETECTED !!!',
+      speed:    '!!! CLOCK SPEED OVERFLOW !!!',
+      invert:   '!!! INPUT BUFFER REVERSED !!!',
+      color:    '!!! RENDER PIPELINE FAULT !!!',
+      negScore: '!!! SCORE INTEGER UNDERFLOW !!!',
+    };
+    glitchMsg.textContent = msgs[type];
+    glitchMsg.style.opacity = '1';
+    setTimeout(() => { glitchMsg.style.opacity = '0'; }, 2000);
+    addLog(msgs[type], true);
+
+    if (type === 'flip')     { this.gravityFlipped = true; this.player.vy = 0; }
+    if (type === 'shake')    { this.startShake(); }
+    if (type === 'speed')    { this.speedMult = 2.2; }
+    if (type === 'invert')   { this.invertControls = true; }
+    if (type === 'color')    { this.colorGlitch = true; }
+  }
+
+  startShake() {
+    const shake = () => {
+      if (this.glitchType !== 'shake') return;
+      this.shakeX = (Math.random()-0.5)*12;
+      this.shakeY = (Math.random()-0.5)*8;
+      setTimeout(shake, 80);
+    };
+    shake();
+  }
+
+  endGlitch() {
+    this.glitchType = null;
+    this.glitchDuration = 0;
+    this.gravityFlipped = false;
+    this.speedMult = 1;
+    this.invertControls = false;
+    this.colorGlitch = false;
+    this.shakeX = 0; this.shakeY = 0;
+  }
+
+  foundSecret() {
+    if (this.secretFound) return;
+    this.secretFound = true;
+    this.score += 100;
+    scoreEl.textContent = this.score;
+    secretMsg.textContent = '[ SECRET: +100 PTS | HIDDEN CODE ACTIVATED ]';
+    secretMsg.style.opacity = '1';
+    this.secretTimer = 3;
+    addLog('SECRET_DOOR unlocked! +100pts');
+    this.spawnParticles(this.secretDoor.x, this.secretDoor.y, '#00ff88');
+  }
+
+  spawnParticles(x, y, color) {
+    for (let i=0;i<8;i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = 60 + Math.random() * 100;
+      this.particles.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s - 80, life: 0.6 + Math.random()*0.3, color });
+    }
+  }
+
+  rectsOverlap(a, b) {
+    return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+  }
+
+  draw() {
+    ctx.save();
+    ctx.translate(Math.round(this.shakeX), Math.round(this.shakeY));
+
+    ctx.fillStyle = '#07070d';
+    ctx.fillRect(-10, -10, W+20, H+20);
+
+    if (this.colorGlitch) {
+      ctx.fillStyle = `hsl(${(Date.now()/20)%360},40%,5%)`;
+      ctx.fillRect(-10,-10,W+20,H+20);
+    }
+
+    ctx.strokeStyle = '#111120';
+    ctx.lineWidth = 0.5;
+    for (let x=0;x<W;x+=40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+    for (let y=0;y<H;y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+    if (this.gravityFlipped) {
+      ctx.save();
+      ctx.translate(W/2, H/2);
+      ctx.rotate(Math.PI);
+      ctx.translate(-W/2, -H/2);
+    }
+
+    for (const p of this.platforms) {
+      ctx.fillStyle = this.colorGlitch ? `hsl(${(p.x*3+Date.now()/30)%360},30%,15%)` : p.color;
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+      ctx.fillStyle = '#2a2a4a';
+      ctx.fillRect(p.x, p.y, p.w, 2);
+    }
+
+    for (const px of this.pixels) {
+      if (px.collected) continue;
+      const pulse = 0.7 + 0.3 * Math.sin(Date.now()/300 + px.x);
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = this.colorGlitch ? '#ffffff' : px.color;
+      ctx.fillRect(px.x, px.y, px.w, px.h);
+      ctx.globalAlpha = 1;
+    }
+
+    for (const e of this.enemies) {
+      ctx.fillStyle = this.colorGlitch ? '#ff0000' : '#cc2222';
+      ctx.fillRect(e.x, e.y, e.w, e.h);
+      ctx.fillStyle = '#ff6666';
+      ctx.fillRect(e.x+3, e.y+3, 5, 5);
+      ctx.fillRect(e.x+e.w-8, e.y+3, 5, 5);
+    }
+
+    if (this.secretDoor && this.secretDoor.visible) {
+      ctx.fillStyle = '#004422';
+      ctx.strokeStyle = '#00ff88';
+      ctx.lineWidth = 1;
+      ctx.fillRect(this.secretDoor.x, this.secretDoor.y, this.secretDoor.w, this.secretDoor.h);
+      ctx.strokeRect(this.secretDoor.x, this.secretDoor.y, this.secretDoor.w, this.secretDoor.h);
+      ctx.fillStyle = '#00ff88';
+      ctx.font = '9px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText('?', this.secretDoor.x + this.secretDoor.w/2, this.secretDoor.y + 20);
+    }
+
+    const p = this.player;
+    if (this.glitchType === 'shake' && Math.random() > 0.7) {
+      ctx.fillStyle = '#555';
+      ctx.fillRect(p.x+3, p.y+3, p.w, p.h);
+    }
+    ctx.fillStyle = this.colorGlitch ? `hsl(${Date.now()/10%360},80%,60%)` : p.color;
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.fillRect(p.x+4, p.y+4, 6, 4);
+
+    if (this.gravityFlipped) ctx.restore();
+
+    for (const pt of this.particles) {
+      ctx.globalAlpha = pt.life * 2;
+      ctx.fillStyle = pt.color;
+      ctx.fillRect(pt.x-3, pt.y-3, 6, 6);
+    }
+    ctx.globalAlpha = 1;
+
+    if (this.glitchType === 'shake') {
+      for (let i=0;i<3;i++) {
+        const gy = Math.random()*H;
+        ctx.fillStyle = `rgba(255,255,255,${Math.random()*0.04})`;
+        ctx.fillRect(0, gy, W, 1+Math.random()*2);
+      }
+    }
+
+    ctx.restore();
+  }
+}
+
+function updateLivesUI(n) {
+  livesEl.textContent = '♥'.repeat(Math.max(0,n)) + '♡'.repeat(Math.max(0,3-n));
+}
+
+updateLivesUI(3);
+</script>
+</body>
+</html>
